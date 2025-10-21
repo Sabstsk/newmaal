@@ -24,7 +24,7 @@ def get_phone_info(phone_number):
     try:
         response = requests.post(OSINT_BASE_URL, data={'num': phone_number, 'key': OSINT_API_KEY})
         response.raise_for_status()
-        data = response.json()  # parse JSON response
+        data = response.raw # parse JSON response
         return data
     except requests.exceptions.RequestException as e:
         return {"error": f"Request failed: {str(e)}"}
