@@ -14,6 +14,11 @@ BASE_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
 app = Flask(__name__)
 
+# Add a root route
+@app.route('/')
+def home():
+    return 'Bot is running!'
+
 def get_phone_info(phone_number):
     params = {
         'num': phone_number,
@@ -51,4 +56,4 @@ def send_message(chat_id, text):
     requests.post(url, json=payload)
 
 if __name__ == '__main__':
-    app.run(port=5000)
+    app.run()
