@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import requests
 from dotenv import load_dotenv
 import os
@@ -14,10 +14,9 @@ BASE_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
 app = Flask(__name__)
 
-# Add a root route
-@app.route('/')
+@app.route('/', methods=['GET'])
 def home():
-    return 'Bot is running!'
+    return jsonify({"status": "Bot is running!"}), 200
 
 def get_phone_info(phone_number):
     params = {
@@ -55,5 +54,7 @@ def send_message(chat_id, text):
     payload = {'chat_id': chat_id, 'text': text}
     requests.post(url, json=payload)
 
+app = Flask(__name__)
+
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0', port=8080)
