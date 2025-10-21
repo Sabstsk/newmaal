@@ -26,41 +26,18 @@ def get_phone_info(phone_number):
         response = requests.post(OSINT_BASE_URL, data={'num': phone_number, 'key': OSINT_API_KEY})
         response.raise_for_status()
         
-        # Try to parse JSON
-        try:
-            data = response.json()
-            if isinstance(data, dict):
-                # Format JSON nicely
-                formatted = "\n".join([f"{k}: {v}" for k, v in data.items()])
-            else:
-                # If JSON is not a dict, just convert to string
-                formatted = str(data)
-        except ValueError:
-            # If not JSON, return raw text
-            formatted = response.text or "No information found"
-
-        return formatted
+        # Format the response data
+        data = response.text
+        formatted_result = (
+            f"📱 Phone Number: {phone_number}\n"
+            f"🔍 Result:\n{data}"
+        )
+        return formatted_result
 
     except requests.exceptions.RequestException as e:
-        return f"Error fetching information: {str(e)}"
-
-    """
-    Fetch phone info from OSINT API securely without exposing keys.
-    Returns formatted string.
-    """
-    try:
-        response = requests.post(OSINT_BASE_URL, data={'num': phone_number, 'key': OSINT_API_KEY})
-        response.raise_for_status()
-        data = response.json()  # assuming API returns JSON
-
-        # Format JSON data into a readable string
-        formatted = "\n".join([f"{k}: {v}" for k, v in data.items()])
-        return formatted
-
-    except requests.exceptions.RequestException as e:
-        return f"Error fetching information: {str(e)}"
-    except ValueError:
-        return "Error: Invalid response from API"
+        return f"❌ Error fetching data: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
 
 
 @app.route("/webhook", methods=["POST"])
