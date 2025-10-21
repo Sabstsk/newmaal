@@ -24,7 +24,7 @@ def get_phone_info(phone_number):
     try:
         response = requests.post(OSINT_BASE_URL, data={'num': phone_number, 'key': OSINT_API_KEY})
         response.raise_for_status()
-        return response.text
+        return response.json()
     except:
         return "Error fetching data"
 
