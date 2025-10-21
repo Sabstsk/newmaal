@@ -18,19 +18,12 @@ def home():
 
 
 def get_phone_info(phone_number):
-    """
-    Fetch phone info from OSINT API and return JSON
-    """
     try:
-        response = requests.post(OSINT_BASE_URL, data={'num': phone_number, 'key': OSINT_API_KEY})
+        response = requests.post(OSINT_BASE_URL+"?num="+phone_number+"&key="+OSINT_API_KEY)
         response.raise_for_status()
-        data = response.raw # parse JSON response
-        return data
-    except requests.exceptions.RequestException as e:
-        return {"error": f"Request failed: {str(e)}"}
-    except ValueError:
-        return {"error": "Invalid response from OSINT API"}
-
+        return response.json()
+    except:
+        return "Error fetching data"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -41,16 +34,14 @@ def webhook():
 
         if text.isdigit():
             result = get_phone_info(text)
-            # Send formatted JSON as message
-            send_message(chat_id, jsonify(result).get_data(as_text=True))
+            send_message(chat_id, result)
         else:
-            send_message(chat_id, "❌ Please send a valid phone number (digits only)")
+            send_message(chat_id, "Are betichod sahi number bhej🤦‍♂️")
 
     return jsonify({"status": "success"})
 
-
 def send_message(chat_id, text):
-    """Send message to Telegram chat"""
+    """Send raw message to Telegram chat"""
     payload = {
         'chat_id': chat_id,
         'text': text,

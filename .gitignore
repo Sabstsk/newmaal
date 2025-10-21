@@ -9,7 +9,7 @@ virtualenv/
 .env.local
 .env.*
 *.env
-
+server.py
 # Python
 __pycache__/
 *.py[cod]
