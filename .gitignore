@@ -10,6 +10,7 @@ virtualenv/
 .env.*
 *.env
 server.py
+webhookurl.txt
 # Python
 __pycache__/
 *.py[cod]

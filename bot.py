@@ -28,18 +28,47 @@ def get_phone_info(phone_number):
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json()
+
     if "message" in update and "text" in update["message"]:
         chat_id = update["message"]["chat"]["id"]
-        text = update["message"]["text"]
-
-        if text.isdigit():
-            result = get_phone_info(text)
-            send_message(chat_id, result)
+        text = update["message"]["text"].strip()
+        
+        # --- Handle 10-digit number input ---
+        if text.isdigit() and len(text) == 10:
+            phone_number = text
+            
+            # 1. Send the initial "Searching" message and get its ID
+            searching_text = f"/num {phone_number}\n\n🔎 Searching mobile database..."
+            searching_message_id = send_message(chat_id, searching_text)
+            
+            # Check if sending failed
+            if searching_message_id is None:
+                return jsonify({"status": "error", "message": "Failed to send initial message"})
+            
+            # 2. Get the result
+            result = get_phone_info(phone_number)
+            
+            # 3. Edit the original "Searching" message with the final result
+            edit_message_text(chat_id, searching_message_id, result)
+            
         else:
-            send_message(chat_id, "Are betichod sahi number bhej🤦‍♂️")
+            # Send a friendly message if input is invalid
+            send_message(chat_id, "⚠️ Please send a valid 10-digit phone number!")
 
     return jsonify({"status": "success"})
 
+def send_message(chat_id, text):
+    """
+    Sends a message via Telegram API and returns the message_id.
+    """
+    # NOTE: This requires your actual 'bot' object to be accessible
+    try:
+        # The API call returns a Message object, we need its ID
+        sent_message = bot.send_message(chat_id, text)
+        return sent_message.message_id
+    except Exception as e:
+        print(f"Error sending message: {e}")
+        return None
 
 def format_flipcart_info(data):
     formatted_results = ["ℹ️ Flipcart Information\n"]
@@ -99,3 +128,7 @@ def send_message(chat_id, text):
         'disable_web_page_preview': True
     }
     requests.post(BASE_URL + 'sendMessage', json=payload)
+
+
+
+
