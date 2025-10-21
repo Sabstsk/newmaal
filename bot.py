@@ -19,31 +19,14 @@ def home():
 
 def get_phone_info(phone_number):
     """
-    Fetch phone info from OSINT API and format it securely for Telegram
+    Fetch phone info from OSINT API and return raw response
     """
     try:
         response = requests.post(OSINT_BASE_URL, data={'num': phone_number, 'key': OSINT_API_KEY})
         response.raise_for_status()
-        
-        # Parse and format the response data securely
-        data = response.text.strip()
-        
-        # Create a clean, formatted message
-        formatted_result = (
-            f"📱 *Phone Number Analysis*\n\n"
-            f"Number: `{phone_number}`\n"
-            f"───────────────\n"
-            f"{data}\n"
-            f"───────────────\n"
-            f"_Powered by OSINT_"
-        )
-        
-        return formatted_result
-
-    except requests.exceptions.RequestException as e:
-        return "❌ Unable to fetch information at this time"
-    except Exception as e:
-        return "❌ An unexpected error occurred"
+        return response.text
+    except:
+        return "Error fetching data"
 
 
 @app.route("/webhook", methods=["POST"])
@@ -55,25 +38,21 @@ def webhook():
 
         if text.isdigit():
             result = get_phone_info(text)
-            send_message(chat_id, f"📱 Phone Number Info:\n{result}")
+            send_message(chat_id, result)
         else:
-            send_message(chat_id, "❌ Please send a valid phone number (digits only)")
+            send_message(chat_id, "Please send a valid phone number (digits only)")
 
     return jsonify({"status": "success"})
 
 
 def send_message(chat_id, text):
-    """Send formatted message to Telegram chat"""
-    try:
-        payload = {
-            'chat_id': chat_id,
-            'text': text,
-            'parse_mode': 'Markdown',
-            'disable_web_page_preview': True
-        }
-        requests.post(BASE_URL + 'sendMessage', json=payload)
-    except Exception as e:
-        print(f"Error sending message: {e}")
+    """Send raw message to Telegram chat"""
+    payload = {
+        'chat_id': chat_id,
+        'text': text,
+        'disable_web_page_preview': True
+    }
+    requests.post(BASE_URL + 'sendMessage', json=payload)
 
 
 # No app.run() needed if deploying to Vercel
