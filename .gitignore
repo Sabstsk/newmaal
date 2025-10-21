@@ -1,15 +1,21 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+virtualenv/
+
 # Environment variables
 .env
 .env.local
-.env.*.local
-venv
+.env.*
+*.env
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
