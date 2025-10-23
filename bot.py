@@ -53,27 +53,43 @@ def webhook():
     try:
         update = request.get_json()
         
-        if "message" in update and "text" in update["message"]:
-            chat_id = update["message"]["chat"]["id"]
-            text = update["message"]["text"].strip()
+        # Check if it's a new chat member (when a user starts a chat with the bot)
+        if "message" in update:
+            message = update["message"]
             
-            if text.isdigit() and len(text) == 10:
-                # Send initial message
-                message_id = send_message(chat_id, f"🔍 Searching for: {text}...")
+            # Handle new chat member (first-time user)
+            if "new_chat_members" in message:
+                new_user = message["new_chat_members"][0]  # Get the first new user
+                chat_id = message["chat"]["id"]
                 
-                # Get phone info
-                result = get_phone_info(text)
-                
-                # Format and send result
-                if isinstance(result, dict):
-                    formatted_result = json.dumps(result, indent=2)
+                # Send a welcome message
+                welcome_message = f"Welcome, {new_user['first_name']}! How can I assist you today?"
+                send_message(chat_id, welcome_message)
+                return jsonify({"status": "success"})
+
+            # Handle incoming message
+            if "text" in message:
+                chat_id = message["chat"]["id"]
+                text = message["text"].strip()
+
+                # Check if the message is a valid 10-digit phone number
+                if text.isdigit() and len(text) == 10:
+                    # Send the initial searching message
+                    message_id = send_message(chat_id, f"🔍 Searching for: {text}...")
+
+                    # Get phone info
+                    result = get_phone_info(text)
+
+                    # Format and send the result
+                    if isinstance(result, dict):
+                        formatted_result = json.dumps(result, indent=2)
+                    else:
+                        formatted_result = str(result)
+
+                    # Edit original message with results
+                    edit_message_text(chat_id, message_id, formatted_result)
                 else:
-                    formatted_result = str(result)
-                
-                # Edit original message with results
-                edit_message_text(chat_id, message_id, formatted_result)
-            else:
-                send_message(chat_id, "⚠️ Please send a valid 10-digit phone number!")
+                    send_message(chat_id, "⚠️ Please send a valid 10-digit phone number!")
         
         return jsonify({"status": "success"})
     
