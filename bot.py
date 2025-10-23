@@ -1,8 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
-import json
 import os
-import telegram  # New import for Bot
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -11,100 +9,11 @@ API_TOKEN = os.getenv('TELEGRAM_API_TOKEN')
 OSINT_BASE_URL = os.getenv('OSINT_BASE_URL')
 BASE_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
-# --- Initialize Telegram Bot (NEW) ---
-bot = telegram.Bot(token=API_TOKEN)
-
 app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"status": "Server is running!"})
-
-def get_phone_info(phone_number):
-    try:
-        # Debug log
-        print(f"🔍 Requesting info for: {phone_number}")
-
-        # Prepare base URL and params
-        base = OSINT_BASE_URL.rstrip('?')
-        params = {"number": phone_number}
-        
-        # Timeout reduced to 5 seconds (avoid Telegram timeout)
-        response = requests.get(base, params=params, timeout=5)
-
-        # Debug info
-        print(f"🌐 Request URL: {response.url}")
-        print(f"📡 Status code: {response.status_code}")
-
-        # Raise error for bad status        response.raise_for_status()
-
-        # Return JSON if possible, otherwise raw text
-        try:
-            return replace_mrx(beautify_json(response.json()))
-        except json.JSONDecodeError:
-            return "❌ Invalid data from API"
-
-    except requests.exceptions.Timeout:
-        print("⏰ Timeout error")
-        return "❌ Request timed out"
-    except requests.exceptions.HTTPError as e:
-        print(f"📛 HTTP Error: {e}")
-        return f"❌ API Error: {response.status_code}"
-    except Exception as e:
-        print(f"💥 Unexpected error: {e}")
-        return "❌ Error fetching data"
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    update = request.get_json()
-    
-    # --- Immediate valid response (avoid Telegram timeout) ---
-    if not update or "message" not in update:
-        print(f"📥 Ignoring non-message update: {update}")
-        return jsonify({"status": "ignored"}), 200  # Must be 200
-
-    chat_id = update["message"]["chat"]["id"]
-    text = update["message"]["text"].strip()
-    print(f"💬 Received from {chat_id}: {text}")  # Debug log
-    
-    # --- Handle command-style input (e.g., /1234567890) ---
-    cleaned_text = text.lstrip('/')  # Remove leading '/'
-    
-    # --- Handle 10-digit number input ---
-    if cleaned_text.isdigit() and len(cleaned_text) == 10:
-        phone_number = cleaned_text
-        
-        # 1. Send initial "Searching" message
-        searching_text = f"/num {phone_number}\n\n🔎 Searching mobile database..."
-        try:
-            sent_message = bot.send_message(chat_id, searching_text)
-            searching_message_id = sent_message.message_id
-            print(f"📤 Sent searching msg ID: {searching_message_id}")
-        except Exception as e:
-            print(f"❌ Failed to send message: {e}")
-            return jsonify({"status": "success"}), 200  # Still OK
-        
-        # 2. Get result (API call)
-        result = get_phone_info(phone_number)
-        if "❌" not in str(result) and not isinstance(result, str):
-            result = json.dumps(result, indent=2)  # Convert dict to str if needed
-        
-        # 3. Edit the original message
-        try:
-            success = edit_message_text(chat_id, searching_message_id, str(result))
-            if not success:
-                print("❌ Failed to edit message")
-        except Exception as e:
-            print(f"❌ Edit failed: {e}")
-    
-    else:
-        # 4. Invalid input
-        try:
-            bot.send_message(chat_id, "⚠️ Lowde phone number! Send 10-digit number.")
-        except Exception as e:
-            print(f"❌ Failed to send error message: {e}")
-
-    return jsonify({"status": "success"}), 200  # Final OK
+    return jsonify({"status": "Bot is running!"})
 
 def edit_message_text(chat_id, message_id, text, parse_mode=None):
     """
@@ -115,37 +24,160 @@ def edit_message_text(chat_id, message_id, text, parse_mode=None):
         payload = {
             'chat_id': chat_id,
             'message_id': message_id,
-            'text': str(text)[:4000],  # Truncate long messages
+            'text': text,
             'disable_web_page_preview': True
         }
         if parse_mode:
             payload['parse_mode'] = parse_mode
 
-        r = requests.post(BASE_URL + 'editMessageText', json=payload, timeout=5)
+        r = requests.post(BASE_URL + 'editMessageText', json=payload, timeout=10)
         r.raise_for_status()
-        print(f"✏️ Edited message {message_id} successfully")
         return True
     except Exception as e:
-        print(f"💥 Edit failed: {e}")
+        print(f"Error editing message: {e}")
         return False
-
-# --- Helper functions (no changes) ---
+    
 def beautify_json(json_data):
+
     try:
+        # If json_data is a string, try to parse it into a Python object (dict/list)
         if isinstance(json_data, str):
             json_data = json.loads(json_data)
+        
+        # Beautify the JSON and return the indented version
         return json.dumps(json_data, indent=4)
+    
     except (ValueError, TypeError) as e:
+        # Handle invalid JSON input
         return f"Error beautifying JSON: {e}"
 
+def send_message(chat_id, text):
+    """Send raw message to Telegram chat"""
+    payload = {
+        'chat_id': chat_id,
+        'text': text,
+        'disable_web_page_preview': True
+    }
+    requests.post(BASE_URL + 'sendMessage', json=payload)
+
 def replace_mrx(data):
+    # Convert dict/list to JSON string if needed
     s = json.dumps(data) if isinstance(data, (dict, list)) else data
+    # Replace and return as the same type
     return json.loads(s.replace('MRX', 'Crazy')) if isinstance(data, (dict, list)) else s.replace('MRX', 'Crazy')
 
-# --- Health check ---
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "healthy"}), 200
+def get_phone_info(phone_number):
+    try:
+        # Avoid printing sensitive info
+        print(f"Requesting info for: {phone_number}")
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=False)  # Debug=False for prod
+        # Prepare base URL and params (don't concat query strings manually)
+        base = OSINT_BASE_URL.rstrip('?')
+        params = {"number": phone_number}
+    
+
+        # Use GET because POST returned "Method Not Allowed"
+        response = requests.get(base, params=params, timeout=15)
+
+        # Debug info
+        print("Request URL:", response.url)
+        print("Status code:", response.status_code)
+
+        response.raise_for_status()
+
+        # return JSON if possible, otherwise raw text
+        try:
+            return replace_mrx(beautify_json(response.json()))
+        except ValueError:
+            return "Something went wrong"
+
+    except Exception as e:
+        print(f"Error fetching data")
+        return "Error fetching data"
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    update = request.get_json()
+
+    if "message" in update and "text" in update["message"]:
+        chat_id = update["message"]["chat"]["id"]
+        text = update["message"]["text"].strip()
+        
+        # --- Handle 10-digit number input ---
+        if text.isdigit() and len(text) == 10:
+            phone_number = text
+            
+            # 1. Send the initial "Searching" message and get its ID
+            searching_text = f"/num {phone_number}\n\n🔎 Searching mobile database..."
+            searching_message_id = send_message(chat_id, searching_text)
+            
+            # Check if sending failed
+            if searching_message_id is None:
+                return jsonify({"status": "error", "message": "Failed to send initial message"})
+            
+            # 2. Get the result
+            result = get_phone_info(phone_number)
+            
+            # 3. Edit the original "Searching" message with the final result
+            edit_message_text(chat_id, searching_message_id, result)
+            
+        else:
+            # Send a friendly message if input is invalid
+            send_message(chat_id, "⚠️ Please send a valid 10-digit phone number!")
+
+    return jsonify({"status": "success"})
+
+def send_message(chat_id, text):
+    """
+    Sends a message via Telegram API and returns the message_id.
+    """
+    # NOTE: This requires your actual 'bot' object to be accessible
+    try:
+        # The API call returns a Message object, we need its ID
+        sent_message = bot.send_message(chat_id, text)
+        return sent_message.message_id
+    except Exception as e:
+        print(f"Error sending message: {e}")
+        return None
+
+def format_flipcart_info(data):
+    formatted_results = ["ℹ️ Flipcart Information\n"]
+    
+    for idx, entry in enumerate(data):
+        result = []
+        
+        # Start formatting each result
+        result.append(f"✨ Result {idx + 1} ✨")
+        result.append(f"➡️ Id: {entry.get('id', 'N/A')}")
+        result.append(f"📱 Mobile: {entry.get('mobile', 'N/A')}")
+        result.append(f"👤 Name: {entry.get('name', 'N/A')}")
+        result.append(f"➡️ Father_name: {entry.get('father_name', 'N/A')}")
+        
+        # Handle address with formatting
+        address = entry.get("address", "N/A")
+        address = address.replace("!!", ", ").replace("!", ", ")
+        result.append(f"🏠 Address: {address}")
+        
+        # Handle circle
+        result.append(f"📡 Circle: {entry.get('circle', 'N/A')}")
+        
+        # Add Aadhaar No. if available
+        if entry.get("id_number"):
+            result.append(f"🆔 Aadhaar No.: {entry['id_number']}")
+        
+        # Add alt_mobile if available
+        if entry.get("alt_mobile"):
+            result.append(f"📱 Alt_mobile: {entry['alt_mobile']}")
+        
+        # Join the formatted result for this entry and add it to the overall results
+        formatted_results.append("\n".join(result))
+        formatted_results.append("\n" + "="*50 + "\n")
+    
+    # Join all formatted results with a newline between them
+    return "\n".join(formatted_results)
+
+
+
+
+
+
