@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 API_TOKEN = os.getenv('TELEGRAM_API_TOKEN')
-OSINT_API_KEY = os.getenv('OSINT_API_KEY')
 OSINT_BASE_URL = os.getenv('OSINT_BASE_URL')
 BASE_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
@@ -31,7 +30,7 @@ def get_phone_info(phone_number):
             params["key"] = api_key
 
         # Use GET because POST returned "Method Not Allowed"
-        response = requests.get(base, params=params, timeout=3)
+        response = requests.get(base, params=params, timeout=15)
 
         # Debug info
         print("Request URL:", response.url)
@@ -95,6 +94,28 @@ def send_message(chat_id, text):
         print(f"Error sending message: {e}")
         return None
 
+def edit_message_text(chat_id, message_id, text, parse_mode=None):
+    """
+    Edit a previously sent Telegram message.
+    Returns True on success, False on failure.
+    """
+    try:
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': text,
+            'disable_web_page_preview': True
+        }
+        if parse_mode:
+            payload['parse_mode'] = parse_mode
+
+        r = requests.post(BASE_URL + 'editMessageText', json=payload, timeout=10)
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"Error editing message: {e}")
+        return False
+
 def format_flipcart_info(data):
     formatted_results = ["ℹ️ Flipcart Information\n"]
     
@@ -144,15 +165,6 @@ def beautify_json(json_data):
     except (ValueError, TypeError) as e:
         # Handle invalid JSON input
         return f"Error beautifying JSON: {e}"
-
-def send_message(chat_id, text):
-    """Send raw message to Telegram chat"""
-    payload = {
-        'chat_id': chat_id,
-        'text': text,
-        'disable_web_page_preview': True
-    }
-    requests.post(BASE_URL + 'sendMessage', json=payload)
 
 
 def replace_mrx(data):
