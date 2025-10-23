@@ -89,6 +89,15 @@ def get_phone_info(phone_number):
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json()
+    # Handle /start and /help commands -> show welcome/help message
+    if text.startswith("/start") or text.startswith("/help"):
+        welcome = (
+            "Welcome — Crazy world 🤤🤤"
+            
+        )
+        send_message(chat_id, welcome)
+        return jsonify({"status": "ok", "action": "sent_welcome"})
+
 
     if "message" in update and "text" in update["message"]:
         chat_id = update["message"]["chat"]["id"]
