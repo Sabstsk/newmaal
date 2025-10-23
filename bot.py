@@ -17,13 +17,38 @@ def home():
     return jsonify({"status": "Bot is running!"})
 
 
+# ...existing code...
 def get_phone_info(phone_number):
     try:
-        response = requests.post(OSINT_BASE_URL+"?num="+phone_number+"&key="+OSINT_API_KEY)
+        # Avoid printing sensitive info
+        print(f"Requesting info for: {phone_number}")
+
+        # Prepare base URL and params (don't concat query strings manually)
+        base = OSINT_BASE_URL.rstrip('?')
+        params = {"number": phone_number}
+        api_key = os.getenv("OSINT_API_KEY")
+        if api_key:
+            params["key"] = api_key
+
+        # Use GET because POST returned "Method Not Allowed"
+        response = requests.get(base, params=params, timeout=3)
+
+        # Debug info
+        print("Request URL:", response.url)
+        print("Status code:", response.status_code)
+
         response.raise_for_status()
-        return format_flipcart_info(response.json())
-    except:
+
+        # return JSON if possible, otherwise raw text
+        try:
+            return replace_mrx(beautify_json(response.json()))
+        except ValueError:
+            return "Something went wrong"
+
+    except Exception as e:
+        print(f"Error fetching data")
         return "Error fetching data"
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -130,5 +155,10 @@ def send_message(chat_id, text):
     requests.post(BASE_URL + 'sendMessage', json=payload)
 
 
+def replace_mrx(data):
+    # Convert dict/list to JSON string if needed
+    s = json.dumps(data) if isinstance(data, (dict, list)) else data
+    # Replace and return as the same type
+    return json.loads(s.replace('MRX', 'Crazy')) if isinstance(data, (dict, list)) else s.replace('MRX', 'Crazy')
 
 
