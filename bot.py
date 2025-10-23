@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
+import json
 import os
 from dotenv import load_dotenv
 
@@ -25,9 +26,7 @@ def get_phone_info(phone_number):
         # Prepare base URL and params (don't concat query strings manually)
         base = OSINT_BASE_URL.rstrip('?')
         params = {"number": phone_number}
-        api_key = os.getenv("OSINT_API_KEY")
-        if api_key:
-            params["key"] = api_key
+    
 
         # Use GET because POST returned "Method Not Allowed"
         response = requests.get(base, params=params, timeout=15)
@@ -155,7 +154,7 @@ def format_flipcart_info(data):
 def beautify_json(json_data):
 
     try:
-        # If json_data is a string, try to parse it into a Python object (dict/list)
+        
         if isinstance(json_data, str):
             json_data = json.loads(json_data)
         
