@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import json
+import html
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -16,10 +17,11 @@ app = Flask(__name__)
 def home():
     return jsonify({"status": "Bot is running!"})
 
-def edit_message_text(chat_id, message_id, text, parse_mode=None):
+def edit_message_text(chat_id, message_id, text, parse_mode=None, reply_markup=None):
     """
     Edit a previously sent Telegram message.
     Returns True on success, False on failure.
+    Accepts optional reply_markup (dict) to add inline buttons.
     """
     try:
         payload = {
@@ -30,6 +32,8 @@ def edit_message_text(chat_id, message_id, text, parse_mode=None):
         }
         if parse_mode:
             payload['parse_mode'] = parse_mode
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
 
         r = requests.post(BASE_URL + 'editMessageText', json=payload, timeout=10)
         r.raise_for_status()
@@ -105,8 +109,47 @@ def webhook():
             # 2. Get the result
             result = get_phone_info(phone_number)
             
-            # 3. Edit the original "Searching" message with the final result
-            edit_message_text(chat_id, searching_message_id, result)
+            # Prepare JSON text for display & copy button
+            if isinstance(result, (dict, list)):
+                json_text = json.dumps(result, indent=2, ensure_ascii=False)
+            else:
+                # If get_phone_info returned a plain string, try to parse as JSON, otherwise use as-is
+                try:
+                    parsed = json.loads(result)
+                    json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
+                except Exception:
+                    json_text = str(result)
+
+            # Telegram message limit ~4096 chars — trim for display/copy if needed
+            MAX_COPY = 4000
+            if len(json_text) > MAX_COPY:
+                display_text = json_text[:MAX_COPY] + "\n\n[...truncated]"
+                copy_text = json_text[:MAX_COPY]
+            else:
+                display_text = json_text
+                copy_text = json_text
+
+            # Escape for HTML <pre> block
+            escaped = html.escape(display_text)
+            pre_text = f"<pre>{escaped}</pre>"
+
+            # Inline button that inserts the JSON into the user's current chat input (user can then copy)
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Copy JSON",
+                            "switch_inline_query_current_chat": copy_text
+                        }
+                    ]
+                ]
+            }
+
+            # 3. Edit the original "Searching" message with the final result as code block + copy button
+            success = edit_message_text(chat_id, searching_message_id, pre_text, parse_mode='HTML', reply_markup=reply_markup)
+            if not success:
+                # fallback: send as a normal message
+                send_message(chat_id, pre_text)
             
         else:
             # Send a friendly message if input is invalid
