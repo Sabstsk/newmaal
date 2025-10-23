@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"status": "Bot is running!"})
+    return jsonify({"status": "Server is running!"})
 
 
 # ...existing code...
@@ -78,7 +78,7 @@ def webhook():
             
         else:
             # Send a friendly message if input is invalid
-            send_message(chat_id, "⚠️ Please send a valid 10-digit phone number!")
+            send_message(chat_id, "⚠️ Lowde phone number!")
 
     return jsonify({"status": "success"})
 
