@@ -153,7 +153,7 @@ def webhook():
             
         else:
             # Send a friendly message if input is invalid
-            send_message(chat_id, "⚠️ Lowde phone number!")
+            send_message(chat_id, "⚠️ अबे भोसरिदे phone number bhej")
 
     return jsonify({"status": "success"})
     
@@ -176,7 +176,7 @@ def replace_mrx(data):
     Replace 'MRX' with 'Crazy' in JSON data or string.
     """
     s = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
-    return json.loads(s.replace('MRX', 'Crazy')) if isinstance(data, (dict, list)) else s.replace('MRX', 'Crazy')
+    return json.loads(s.replace('MRX', 'CRAZYPANEL1')) if isinstance(data, (dict, list)) else s.replace('MRX', 'Crazy')
 
 if __name__ == '__main__':
     app.run(debug=True)
