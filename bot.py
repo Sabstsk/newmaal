@@ -112,22 +112,42 @@ def get_phone_info(phone_number):
 
 def is_user_in_group(user_id):
     """
-    Check if a user is member of the required group using getChatMember.
-    Returns True if status is one of accepted statuses, False otherwise.
+    Return True if user is in REQUIRED_GROUP_ID.
+    If Telegram returns a clear status (left/kicked) return False.
+    If API call fails or returns non-200, assume True to avoid falsely asking joined users to join.
     """
     try:
-        resp = requests.get(BASE_URL + 'getChatMember', params={
-            'chat_id': REQUIRED_GROUP_ID,
-            'user_id': user_id
-        }, timeout=8)
-        resp.raise_for_status()
-        data = resp.json()
+        resp = requests.get(
+            BASE_URL + 'getChatMember',
+            params={'chat_id': REQUIRED_GROUP_ID, 'user_id': user_id},
+            timeout=8
+        )
+        # attempt to parse response
+        data = {}
+        try:
+            data = resp.json()
+        except Exception:
+            pass
+
+        if resp.status_code != 200:
+            # Can't verify membership (bot may not have access) -> allow to use bot
+            print("getChatMember non-200:", resp.status_code, data)
+            return True
+
         status = data.get('result', {}).get('status', '')
-        return status in ('creator', 'administrator', 'member')
+        print("getChatMember status:", status)
+
+        # Explicitly deny only for left/kicked/not_member-like statuses
+        if status in ('left', 'kicked', 'left', 'restricted_pending'):
+            return False
+
+        # Treat creator/admin/member/restricted as allowed
+        return status in ('creator', 'administrator', 'member', 'restricted')
+
     except Exception as e:
         print("is_user_in_group error:", e)
-        # If we cannot verify (bot not in group or API error) deny by default
-        return False
+        # On unexpected errors, allow to avoid false join prompts
+        return True
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
