@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 API_TOKEN = os.getenv('TELEGRAM_API_TOKEN')
+API_KEY=os.getenv('API_KEY')
 OSINT_BASE_URL = os.getenv('OSINT_BASE_URL')
 BASE_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
@@ -58,33 +59,49 @@ def send_message(chat_id, text):
         return None
 
 def get_phone_info(phone_number):
+
     try:
-        # Avoid printing sensitive info
         print(f"Requesting info for: {phone_number}")
+        base = (OSINT_BASE_URL or "").rstrip('?')
+        if not base:
+            print("OSINT_BASE_URL not configured")
+            return "Error: OSINT_BASE_URL not configured"
 
-        # Prepare base URL and params (don't concat query strings manually)
-        base = OSINT_BASE_URL.rstrip('?')
-        params = {"number": phone_number}
-    
+        params = {}
+        if API_KEY:
+            params['key'] = API_KEY
+        params['number'] = str(phone_number)
 
-        # Use GET because POST returned "Method Not Allowed"
-        response = requests.get(base, params=params, timeout=15)
+        # Try GET first (builds URL like base?key=...&number=...)
+        resp = requests.get(base, params=params, timeout=15)
+        print("Request URL:", getattr(resp, "url", base))
+        print("Status code:", resp.status_code)
 
-        # Debug info
-        print("Request URL:", response.url)
-        print("Status code:", response.status_code)
+        # If GET not allowed, retry with POST
+        if resp.status_code == 405:
+            print("GET returned 405, retrying with POST")
+            resp = requests.post(base, data=params, timeout=15)
+            print("POST attempted, status:", resp.status_code)
 
-        response.raise_for_status()
+        # show truncated response for debugging
+        text_preview = resp.text[:1000] + ("..." if len(resp.text) > 1000 else "")
+        print("Response (preview):", text_preview)
 
-        # return JSON if possible, otherwise raw text
         try:
-            return replace_mrx(beautify_json(response.json()))
+            resp.raise_for_status()
+        except requests.HTTPError:
+            # return body so caller can show it
+            return resp.text or f"HTTP {resp.status_code}"
+
+        # Prefer JSON; otherwise return raw text
+        try:
+            return beautify_json(resp.json())
         except ValueError:
-            return "Something went wrong"
+            return resp.text or "No content"
 
     except Exception as e:
-        print(f"Error fetching data")
-        return "Error fetching data"
+        print("Error fetching data:", e)
+        return f"Error fetching data: {e}"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
