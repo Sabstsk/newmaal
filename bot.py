@@ -112,9 +112,9 @@ def get_phone_info(phone_number):
 
 def is_user_in_group(user_id):
     """
-    Return True if user is in REQUIRED_GROUP_ID.
-    If Telegram returns a clear status (left/kicked) return False.
-    If API call fails or returns non-200, assume True to avoid falsely asking joined users to join.
+    Return True only if the user is a member of REQUIRED_GROUP_ID.
+    If getChatMember returns non-200 or an error occurs, treat as NOT a member (return False)
+    so users must join the group to use the bot.
     """
     try:
         resp = requests.get(
@@ -122,32 +122,25 @@ def is_user_in_group(user_id):
             params={'chat_id': REQUIRED_GROUP_ID, 'user_id': user_id},
             timeout=8
         )
-        # attempt to parse response
-        data = {}
-        try:
-            data = resp.json()
-        except Exception:
-            pass
-
+        # If Telegram responds with non-200, user is not verified -> treat as not a member
         if resp.status_code != 200:
-            # Can't verify membership (bot may not have access) -> allow to use bot
-            print("getChatMember non-200:", resp.status_code, data)
-            return True
+            print("getChatMember non-200:", resp.status_code, resp.text)
+            return False
 
+        data = resp.json()
         status = data.get('result', {}).get('status', '')
         print("getChatMember status:", status)
 
-        # Explicitly deny only for left/kicked/not_member-like statuses
-        if status in ('left', 'kicked', 'left', 'restricted_pending'):
-            return False
-
-        # Treat creator/admin/member/restricted as allowed
+        # Acceptable statuses that indicate membership
         return status in ('creator', 'administrator', 'member', 'restricted')
 
+    except requests.HTTPError as e:
+        print("getChatMember HTTPError:", e, getattr(e, 'response', None))
+        return False
     except Exception as e:
         print("is_user_in_group error:", e)
-        # On unexpected errors, allow to avoid false join prompts
-        return True
+        # Enforce join on unexpected errors
+        return False
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
