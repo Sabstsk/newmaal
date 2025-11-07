@@ -12,10 +12,6 @@ API_KEY=os.getenv('API_KEY')
 OSINT_BASE_URL = os.getenv('OSINT_BASE_URL')
 BASE_URL = f'https://api.telegram.org/bot{API_TOKEN}/'
 
-# required group (provided)
-REQUIRED_GROUP_ID = os.getenv('REQUIRED_GROUP_ID', '2925002298')
-REQUIRED_GROUP_INVITE = os.getenv('REQUIRED_GROUP_LINK', 'https://t.me/+oCWGUjOqlgM3ZGRl')
-
 app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
@@ -47,8 +43,7 @@ def edit_message_text(chat_id, message_id, text, parse_mode=None, reply_markup=N
         print(f"Error editing message: {e}")
         return False
 
-# modify send_message to accept optional reply_markup
-def send_message(chat_id, text, reply_markup=None):
+def send_message(chat_id, text):
     """Send message to Telegram chat and return message_id"""
     try:
         payload = {
@@ -56,8 +51,6 @@ def send_message(chat_id, text, reply_markup=None):
             'text': text,
             'disable_web_page_preview': True
         }
-        if reply_markup:
-            payload['reply_markup'] = reply_markup
         response = requests.post(BASE_URL + 'sendMessage', json=payload)
         response.raise_for_status()
         return response.json()['result']['message_id']
@@ -110,67 +103,9 @@ def get_phone_info(phone_number):
         print("Error fetching data:", e)
         return f"Error fetching data: {e}"
 
-def is_user_in_group(user_id):
-    """
-    Return True only if the user is a member of REQUIRED_GROUP_ID.
-    If getChatMember returns non-200 or an error occurs, treat as NOT a member (return False)
-    so users must join the group to use the bot.
-    """
-    try:
-        resp = requests.get(
-            BASE_URL + 'getChatMember',
-            params={'chat_id': REQUIRED_GROUP_ID, 'user_id': user_id},
-            timeout=8
-        )
-        # If Telegram responds with non-200, user is not verified -> treat as not a member
-        if resp.status_code != 200:
-            print("getChatMember non-200:", resp.status_code, resp.text)
-            return False
-
-        data = resp.json()
-        status = data.get('result', {}).get('status', '')
-        print("getChatMember status:", status)
-
-        # Acceptable statuses that indicate membership
-        return status in ('creator', 'administrator', 'member', 'restricted')
-
-    except requests.HTTPError as e:
-        print("getChatMember HTTPError:", e, getattr(e, 'response', None))
-        return False
-    except Exception as e:
-        print("is_user_in_group error:", e)
-        # Enforce join on unexpected errors
-        return False
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = request.get_json() or {}
-    message = update.get("message") or {}
-    chat = message.get("chat") or {}
-    chat_id = chat.get("id")
-    chat_type = chat.get("type", "")
-    user = message.get("from") or {}
-    user_id = user.get("id")
-
-    if not chat_id or not user_id:
-        return jsonify({"status": "ignored"})
-
-    # If message in private chat, require membership in REQUIRED_GROUP_ID
-    if chat_type == "private":
-        if not is_user_in_group(user_id):
-            text = (
-                "⚠️ You must join the support group to use this bot.\n\n"
-                "Please join the group and then send /start or your 10-digit number."
-            )
-            reply_markup = {
-                "inline_keyboard": [
-                    [
-                        {"text": "Join Group to Use Bot", "url": REQUIRED_GROUP_INVITE}
-                    ]
-                ]
-            }
-            send_message(chat_id, text, reply_markup=reply_markup)
-            return jsonify({"status": "need_join"})
+    update = request.get_json()
 
     if "message" in update and "text" in update["message"]:
         chat_id = update["message"]["chat"]["id"]
@@ -253,12 +188,7 @@ def beautify_json(json_data):
         # Handle invalid JSON input
         return f"Error beautifying JSON: {e}"
     
-def replace_mrx(data):
-    """
-    Replace 'MRX' with 'Crazy' in JSON data or string.
-    """
-    s = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
-    return json.loads(s.replace('MRX', 'CRAZYPANEL1')) if isinstance(data, (dict, list)) else s.replace('MRX', 'CRAZYPANEL1')
+
 
 if __name__ == '__main__':
     app.run(debug=True)
