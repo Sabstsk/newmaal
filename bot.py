@@ -4,6 +4,8 @@ import os
 import json
 import html
 from dotenv import load_dotenv
+import asyncio
+import re
 
 # Load environment variables
 load_dotenv()
@@ -105,74 +107,89 @@ def get_phone_info(phone_number):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = request.get_json()
+    update = request.get_json() or {}
+    message = update.get("message") or {}
+    text = (message.get("text") or "").strip()
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
 
-    if "message" in update and "text" in update["message"]:
-        chat_id = update["message"]["chat"]["id"]
-        text = update["message"]["text"].strip()
-        
-        # --- Handle 10-digit number input ---
-        if text.isdigit() and len(text) == 10:
-            phone_number = text
-            
-            # 1. Send the initial "Searching" message and get its ID
-            searching_text = f"/num {phone_number}\n\n🔎 Searching mobile database..."
-            searching_message_id = send_message(chat_id, searching_text)
-            
-            # Check if sending failed
-            if searching_message_id is None:
-                return jsonify({"status": "error", "message": "Failed to send initial message"})
-            
-            # 2. Get the result
-            result = get_phone_info(phone_number)
-            
-            # Prepare JSON text for display & copy button
-            if isinstance(result, (dict, list)):
-                json_text = json.dumps(result, indent=2, ensure_ascii=False)
-            else:
-                # If get_phone_info returned a plain string, try to parse as JSON, otherwise use as-is
-                try:
-                    parsed = json.loads(result)
-                    json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
-                except Exception:
-                    json_text = str(result)
+    if not chat_id:
+        return jsonify({"status": "ignored", "reason": "no chat id"})
 
-            # Telegram message limit ~4096 chars — trim for display/copy if needed
-            MAX_COPY = 4000
-            if len(json_text) > MAX_COPY:
-                display_text = json_text[:MAX_COPY] + "\n\n[...truncated]"
-                copy_text = json_text[:MAX_COPY]
-            else:
-                display_text = json_text
-                copy_text = json_text
+    # /start handler (unchanged)
+    if text.startswith("/start") or text.startswith("/help"):
+        welcome = (
+            "Welcome — Phone Lookup Bot!\n\n"
+            "Send a 10-digit phone number and I'll return the raw JSON result.\n\n"
+            "Examples:\n"
+            "- 9876543210\n\n"
+            "Note: The bot returns raw JSON; use the \"Copy JSON\" button to copy the data."
+        )
+        send_message(chat_id, welcome)
+        return jsonify({"status": "ok", "action": "sent_welcome"})
 
-            # Escape for HTML <pre> block
-            escaped = html.escape(display_text)
-            pre_text = f"<pre>{escaped}</pre>"
+    # Reject incorrect formats (contains plus, spaces or non-digit characters / wrong length)
+    # Examples to reject: "+919876543210", "98 765 43210", "98-76543210", "phone123"
+    if text.startswith('+') or ' ' in text or not re.fullmatch(r'\d{10}', text):
+        # Insulting message as requested (kept short)
+        send_message(chat_id, "⚠️ Bakchodi mat kar, lowde. Gandmasti toh dekho 🤦‍♂️😒\nSend a plain 10-digit number (e.g. 9876543210).")
+        return jsonify({"status": "ok", "action": "invalid_format"})
 
-            # Inline button that inserts the JSON into the user's current chat input (user can then copy)
-            reply_markup = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "Copy JSON",
-                            "switch_inline_query_current_chat": copy_text
-                        }
-                    ]
-                ]
-            }
+    # At this point text is exactly 10 digits
+    phone_number = text
 
-            # 3. Edit the original "Searching" message with the final result as code block + copy button
-            success = edit_message_text(chat_id, searching_message_id, pre_text, parse_mode='HTML', reply_markup=reply_markup)
-            if not success:
-                # fallback: send as a normal message
-                send_message(chat_id, pre_text)
-            
-        else:
-            # Send a friendly message if input is invalid
-            send_message(chat_id, "⚠️ Abe Bsdk phone number bhej")
+    # 1. Send the initial "Searching" message and get its ID
+    searching_text = f"/num {phone_number}\n\n🔎 Searching mobile database..."
+    searching_message_id = send_message(chat_id, searching_text)
 
-    return jsonify({"status": "success"})
+    if searching_message_id is None:
+        return jsonify({"status": "error", "message": "Failed to send initial message"})
+
+    # 2. Get the result
+    result = get_phone_info(phone_number)
+
+    # Prepare JSON text for display & copy button
+    if isinstance(result, (dict, list)):
+        json_text = json.dumps(result, indent=2, ensure_ascii=False)
+    else:
+        try:
+            parsed = json.loads(result)
+            json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
+        except Exception:
+            json_text = str(result)
+
+    # Telegram message limit ~4096 chars — trim for display/copy if needed
+    MAX_COPY = 4000
+    if len(json_text) > MAX_COPY:
+        display_text = json_text[:MAX_COPY] + "\n\n[...truncated]"
+        copy_text = json_text[:MAX_COPY]
+    else:
+        display_text = json_text
+        copy_text = json_text
+
+    # Escape for HTML <pre> block
+    escaped = html.escape(display_text)
+    pre_text = f"<pre>{escaped}</pre>"
+
+    # Inline button that inserts the JSON into the user's current chat input (user can then copy)
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Copy JSON",
+                    "switch_inline_query_current_chat": copy_text
+                }
+            ]
+        ]
+    }
+
+    # 3. Edit the original "Searching" message with the final result as code block + copy button
+    success = edit_message_text(chat_id, searching_message_id, pre_text, parse_mode='HTML', reply_markup=reply_markup)
+    if not success:
+        # fallback: send as a normal message
+        send_message(chat_id, pre_text)
+
+    return jsonify({"status": "ok", "action": "sent_result"})
     
 
 def beautify_json(json_data):
@@ -189,6 +206,48 @@ def beautify_json(json_data):
         return f"Error beautifying JSON: {e}"
     
 
+def send_reply(chat_id, text, reply_to_message_id=None):
+    """
+    Send a reply to a specific message (synchronous helper).
+    Returns message_id or None.
+    """
+    try:
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'disable_web_page_preview': True
+        }
+        if reply_to_message_id:
+            payload['reply_to_message_id'] = reply_to_message_id
+
+        r = requests.post(BASE_URL + 'sendMessage', json=payload, timeout=10)
+        r.raise_for_status()
+        return r.json().get('result', {}).get('message_id')
+    except Exception as e:
+        print("Error sending reply:", e)
+        return None
+
+
+async def reply_to_user(update, context):
+    """
+    Async handler compatible with python-telegram-bot style handlers.
+    Replies to the user's message with a simple echo (or JSON result).
+    Use this if you integrate python-telegram-bot; otherwise you can call
+    send_reply(...) from the Flask webhook flow.
+    """
+    try:
+        user_message = getattr(update.message, "text", "") or ""
+        reply_text = f"You said: {user_message}"
+
+        # If running in a sync environment, run send_reply in executor
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None,
+                                   send_reply,
+                                   update.message.chat.id,
+                                   reply_text,
+                                   update.message.message_id)
+    except Exception as e:
+        print("reply_to_user error:", e)
 
 if __name__ == '__main__':
     app.run(debug=True)
