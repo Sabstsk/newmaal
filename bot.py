@@ -314,9 +314,9 @@ def _escape_markdown_v2(text: str) -> str:
     """Escape text for MarkdownV2 (Telegram)"""
     if not isinstance(text, str):
         text = str(text)
-    # chars that must be escaped in MarkdownV2
-    special_chars = r'_*\[\]()~`>#+-=|{}.!\\'
-    for ch in special_chars:
+    # Characters that must be escaped in MarkdownV2
+    # note: backslash must be escaped first
+    for ch in ['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
         text = text.replace(ch, f'\\{ch}')
     return text
 
@@ -325,15 +325,20 @@ def reply_to_user_in_group(chat_id, reply_to_message_id, user, reply_text):
     Reply to a specific user's message in a group with a clickable mention (MarkdownV2).
     - user: dict from update['message']['from']
     - reply_text: plain string (will be escaped)
+    This will mention the user so they get notified that the bot replied to them.
     """
     try:
         user_id = user.get('id')
-        first_name = user.get('first_name', 'User')
-        # escape name and reply_text for MarkdownV2
+        first_name = user.get('first_name') or user.get('username') or 'User'
+
+        # Escape for MarkdownV2
         esc_name = _escape_markdown_v2(first_name)
         esc_reply = _escape_markdown_v2(reply_text)
+
+        # Build mention using tg://user?id= so it notifies the user
         mention = f'[{esc_name}](tg://user?id={user_id})'
         text = f"{mention}, {esc_reply}"
+
         payload = {
             'chat_id': chat_id,
             'text': text,
