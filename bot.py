@@ -239,16 +239,17 @@ def webhook():
     # (place this where you finalize sending result)
     if text.isdigit() and len(text) == 10:
         # ...existing send/search/edit logic ...
-        # assume `searching_message_id` and `success` variables as in existing flow
         # after you edited the searching message with the JSON result:
         if success:
-            # short reply telling user where result is
-            reply_text = "Result sent above. Use the \"Copy JSON\" button to copy the data."
-            reply_to_user_in_group(chat_id, user_message_id, user, reply_text)
+            # reply the actual JSON (or truncated JSON) to the user so they see the data directly
+            json_reply = copy_text if len(copy_text) <= 1000 else copy_text[:1000] + "\n\n[...truncated]"
+            reply_to_user_in_group(chat_id, user_message_id, user, json_reply)
         else:
-            # if fallback sent a normal message (send_message returned a message id)
-            reply_text = "Result sent as a message. Use the Copy JSON button if available."
-            reply_to_user_in_group(chat_id, user_message_id, user, reply_text)
+            # fallback: send the raw (or truncated) JSON as reply
+            json_reply = copy_text if 'copy_text' in locals() else (json_text if 'json_text' in locals() else "Result available above.")
+            if len(json_reply) > 1000:
+                json_reply = json_reply[:1000] + "\n\n[...truncated]"
+            reply_to_user_in_group(chat_id, user_message_id, user, json_reply)
 
     return jsonify({"status": "ok", "action": "sent_result"})
     
