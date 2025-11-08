@@ -106,7 +106,7 @@ def get_phone_info(phone_number):
 
         # Prefer JSON; otherwise return raw text
         try:
-            return beautify_json(resp.json())
+            return resp.json()
         except ValueError:
             return resp.text or "No content"
 
@@ -195,91 +195,72 @@ def webhook():
     # 2. Get the result
     result = get_phone_info(phone_number)
 
-    # Prepare JSON text for display & copy button
-    if isinstance(result, (dict, list)):
-        json_text = json.dumps(result, indent=2, ensure_ascii=False)
-    else:
-        try:
-            parsed = json.loads(result)
-            json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
-        except Exception:
-            json_text = str(result)
-
-    # Telegram message limit ~4096 chars — trim for display/copy if needed
-    MAX_COPY = 4000
-    if len(json_text) > MAX_COPY:
-        display_text = json_text[:MAX_COPY] + "\n\n[...truncated]"
-        copy_text = json_text[:MAX_COPY]
-    else:
-        display_text = json_text
-        copy_text = json_text
-
-    # Escape for HTML <pre> block
-    escaped = html.escape(display_text)
-    pre_text = f"<pre>{escaped}</pre>"
-
-    # Inline button that inserts the JSON into the user's current chat input (user can then copy)
-    reply_markup = {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "Copy JSON",
-                    "switch_inline_query_current_chat": copy_text
-                }
-            ]
-        ]
-    }
-
-    # 3. Edit the original "Searching" message with the final result as code block + copy button
-    success = edit_message_text(chat_id, searching_message_id, pre_text, parse_mode='HTML', reply_markup=reply_markup)
-    if not success:
-        # fallback: send as a normal message
-        send_message(chat_id, pre_text)
-
-    # After sending/editing the result, notify the user and attach JSON file (no large inline reply)
-    if text.isdigit() and len(text) == 10:
-        if success:
-            # notify the user (mention) that result is posted and file attached
-            notify = "Result posted above. JSON file attached below — open or download to copy the full data."
-            reply_to_user_in_group(chat_id, user_message_id, user, notify)
-
-            # send JSON as a .json file (full content) replying to user's message
-            try:
-                full_json = copy_text if 'copy_text' in locals() else json_text
-                if not isinstance(full_json, (bytes, bytearray)):
-                    full_bytes = full_json.encode('utf-8')
-                else:
-                    full_bytes = full_json
-                send_document(chat_id, full_bytes, f"{phone_number}.json", reply_to_message_id=user_message_id)
-            except Exception as e:
-                print("Error preparing/sending json file:", e)
+    # Format the result using format_flipcart_info
+    try:
+        if isinstance(result, (dict, list)):
+            data = result if isinstance(result, list) else [result]
+            formatted_text = format_flipcart_info(data)
         else:
-            # fallback: notify and attach available json_text (if any)
-            notify = "Result available above. Attached partial JSON file below."
-            reply_to_user_in_group(chat_id, user_message_id, user, notify)
             try:
-                fallback_json = (copy_text if 'copy_text' in locals() else (json_text if 'json_text' in locals() else ""))
-                if fallback_json:
-                    fb = fallback_json.encode('utf-8') if not isinstance(fallback_json, (bytes, bytearray)) else fallback_json
-                    send_document(chat_id, fb, f"{phone_number}.json", reply_to_message_id=user_message_id)
-            except Exception as e:
-                print("Error sending fallback json file:", e)
+                parsed = json.loads(result)
+                data = parsed if isinstance(parsed, list) else [parsed]
+                formatted_text = format_flipcart_info(data)
+            except Exception:
+                formatted_text = str(result)
+    except Exception as e:
+        print(f"Error formatting result: {e}")
+        formatted_text = str(result)
+
+    # Delete the searching message
+    try:
+        requests.post(BASE_URL + 'deleteMessage', json={
+            'chat_id': chat_id,
+            'message_id': searching_message_id
+        }, timeout=10)
+    except Exception as e:
+        print(f"Error deleting searching message: {e}")
+
+    # Send formatted result as a reply to user's message (only once)
+    reply_to_user_in_group(chat_id, user_message_id, user, formatted_text)
 
     return jsonify({"status": "ok", "action": "sent_result"})
     
 
-def beautify_json(json_data):
-
-    try:
-        if isinstance(json_data, str):
-            json_data = json.loads(json_data)
-        
-        # Beautify the JSON and return the indented version
-        return json.dumps(json_data, indent=4)
+def format_flipcart_info(data):
+    formatted_results = ["ℹ️ Flipcart Information\n"]
     
-    except (ValueError, TypeError) as e:
-        # Handle invalid JSON input
-        return f"Error beautifying JSON: {e}"
+    for idx, entry in enumerate(data):
+        result = []
+        
+        # Start formatting each result
+        result.append(f"✨ Result {idx + 1} ✨")
+        result.append(f"➡️ Id: {entry.get('id', 'N/A')}")
+        result.append(f"📱 Mobile: {entry.get('mobile', 'N/A')}")
+        result.append(f"👤 Name: {entry.get('name', 'N/A')}")
+        result.append(f"➡️ Father_name: {entry.get('father_name', 'N/A')}")
+        
+        # Handle address with formatting
+        address = entry.get("address", "N/A")
+        address = address.replace("!!", ", ").replace("!", ", ")
+        result.append(f"🏠 Address: {address}")
+        
+        # Handle circle
+        result.append(f"📡 Circle: {entry.get('circle', 'N/A')}")
+        
+        # Add Aadhaar No. if available
+        if entry.get("id_number"):
+            result.append(f"🆔 Aadhaar No.: {entry['id_number']}")
+        
+        # Add alt_mobile if available
+        if entry.get("alt_mobile"):
+            result.append(f"📱 Alt_mobile: {entry['alt_mobile']}")
+        
+        # Join the formatted result for this entry and add it to the overall results
+        formatted_results.append("\n".join(result))
+        formatted_results.append("\n" + "="*50 + "\n")
+    
+    # Join all formatted results with a newline between them
+    return "\n".join(formatted_results)
     
 
 def send_reply(chat_id, text, reply_to_message_id=None):
