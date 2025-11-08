@@ -6,6 +6,7 @@ import html
 from dotenv import load_dotenv
 import asyncio
 import re
+import random
 
 # Load environment variables
 load_dotenv()
@@ -105,6 +106,42 @@ def get_phone_info(phone_number):
         print("Error fetching data:", e)
         return f"Error fetching data: {e}"
 
+def choose_abusive_message(text):
+    """
+    Return a short abusive message variant depending on the user's wrong input.
+    """
+    # Variants for different mistakes
+    plus_msgs = [
+        "⚠️ Plus mat lagao yaar — seedha 10-digit number bhejo. Bakchodi band karo 😒",
+        "🤦‍♂️ +91 hatao aur sirf 10 digits bhejo. Gandmasti chhod."
+    ]
+    space_msgs = [
+        "⚠️ Space mat daalo — number continuous 10 digits chahiye. Lowde, sudhar jao.",
+        "🤨 Beech mein space mat daalo, number sahi bhejo."
+    ]
+    nondigit_msgs = [
+        "❌ Alphabets/special chars nahi chalega — sirf digits bhejo. Bakchodi mat kar.",
+        "😑 Phone mein letters nahi chalte. Seedha 10-digit number bhejo."
+    ]
+    length_msgs = [
+        "⚠️ Number ka size galat hai — 10 digits chahiye. Gandmasti toh dekho.",
+        "🚫 10-digit number bhejo, warna bakchodi band karo."
+    ]
+    default_msgs = [
+        "⚠️ Galat format — sirf 10-digit number bhejo. Samjha?",
+        "😒 Number sahi nahi hai. Seedha 10-digit number bhejo."
+    ]
+
+    if text.startswith('+'):
+        return random.choice(plus_msgs)
+    if ' ' in text:
+        return random.choice(space_msgs)
+    if not re.search(r'^\d+$', text):
+        return random.choice(nondigit_msgs)
+    if len(re.sub(r'\D', '', text)) != 10:
+        return random.choice(length_msgs)
+    return random.choice(default_msgs)
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json() or {}
@@ -128,11 +165,10 @@ def webhook():
         send_message(chat_id, welcome)
         return jsonify({"status": "ok", "action": "sent_welcome"})
 
-    # Reject incorrect formats (contains plus, spaces or non-digit characters / wrong length)
-    # Examples to reject: "+919876543210", "98 765 43210", "98-76543210", "phone123"
-    if text.startswith('+') or ' ' in text or not re.fullmatch(r'\d{10}', text):
-        # Insulting message as requested (kept short)
-        send_message(chat_id, "⚠️ Bakchodi mat kar, lowde. Gandmasti toh dekho 🤦‍♂️😒\nSend a plain 10-digit number (e.g. 9876543210).")
+    # Validate input and send tailored abusive message when format is wrong
+    if not re.fullmatch(r'\d{10}', text):
+        abuse = choose_abusive_message(text)
+        send_message(chat_id, abuse)
         return jsonify({"status": "ok", "action": "invalid_format"})
 
     # At this point text is exactly 10 digits
