@@ -198,12 +198,20 @@ def webhook():
     # Format the result using format_flipcart_info
     try:
         if isinstance(result, (dict, list)):
-            data = result if isinstance(result, list) else [result]
+            # Extract data array if wrapped in 'data' key
+            if isinstance(result, dict) and 'data' in result:
+                data = result['data']
+            else:
+                data = result if isinstance(result, list) else [result]
             formatted_text = format_flipcart_info(data)
         else:
             try:
                 parsed = json.loads(result)
-                data = parsed if isinstance(parsed, list) else [parsed]
+                # Extract data array if wrapped in 'data' key
+                if isinstance(parsed, dict) and 'data' in parsed:
+                    data = parsed['data']
+                else:
+                    data = parsed if isinstance(parsed, list) else [parsed]
                 formatted_text = format_flipcart_info(data)
             except Exception:
                 formatted_text = str(result)
@@ -227,17 +235,17 @@ def webhook():
     
 
 def format_flipcart_info(data):
-    formatted_results = ["ℹ️ Flipcart Information\n"]
+    formatted_results = ["ℹ️ Number Information\n"]
     
     for idx, entry in enumerate(data):
         result = []
         
         # Start formatting each result
         result.append(f"✨ Result {idx + 1} ✨")
-        result.append(f"➡️ Id: {entry.get('id', 'N/A')}")
+        result.append(f"🆔 Aadhaar No.: {entry.get('id', 'N/A')}")
         result.append(f"📱 Mobile: {entry.get('mobile', 'N/A')}")
         result.append(f"👤 Name: {entry.get('name', 'N/A')}")
-        result.append(f"➡️ Father_name: {entry.get('father_name', 'N/A')}")
+        result.append(f"👨 Father_name: {entry.get('fname', 'N/A')}")
         
         # Handle address with formatting
         address = entry.get("address", "N/A")
@@ -247,13 +255,13 @@ def format_flipcart_info(data):
         # Handle circle
         result.append(f"📡 Circle: {entry.get('circle', 'N/A')}")
         
-        # Add Aadhaar No. if available
-        if entry.get("id_number"):
-            result.append(f"🆔 Aadhaar No.: {entry['id_number']}")
+        # Add email if available
+        if entry.get("email"):
+            result.append(f"📧 Email: {entry['email']}")
         
         # Add alt_mobile if available
-        if entry.get("alt_mobile"):
-            result.append(f"📱 Alt_mobile: {entry['alt_mobile']}")
+        if entry.get("alt"):
+            result.append(f"📱 Alt_mobile: {entry['alt']}")
         
         # Join the formatted result for this entry and add it to the overall results
         formatted_results.append("\n".join(result))
@@ -317,12 +325,7 @@ def _escape_markdown_v2(text: str) -> str:
     return text
 
 def reply_to_user_in_group(chat_id, reply_to_message_id, user, reply_text):
-    """
-    Reply to a specific user's message in a group with a clickable mention (MarkdownV2).
-    - user: dict from update['message']['from']
-    - reply_text: plain string (will be escaped)
-    This will mention the user so they get notified that the bot replied to them.
-    """
+    
     try:
         user_id = user.get('id')
         first_name = user.get('first_name') or user.get('username') or 'User'
