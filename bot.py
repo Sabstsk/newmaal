@@ -46,7 +46,7 @@ def edit_message_text(chat_id, message_id, text, parse_mode=None, reply_markup=N
         print(f"Error editing message: {e}")
         return False
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, parse_mode=None, reply_to_message_id=None, reply_markup=None):
     """Send message to Telegram chat and return message_id"""
     try:
         payload = {
@@ -54,7 +54,14 @@ def send_message(chat_id, text):
             'text': text,
             'disable_web_page_preview': True
         }
-        response = requests.post(BASE_URL + 'sendMessage', json=payload)
+        if parse_mode:
+            payload['parse_mode'] = parse_mode
+        if reply_to_message_id:
+            payload['reply_to_message_id'] = reply_to_message_id
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+
+        response = requests.post(BASE_URL + 'sendMessage', json=payload, timeout=10)
         response.raise_for_status()
         return response.json()['result']['message_id']
     except Exception as e:
@@ -149,6 +156,9 @@ def webhook():
     text = (message.get("text") or "").strip()
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
+    chat_type = chat.get("type", "")
+    user = message.get("from") or {}
+    user_message_id = message.get("message_id")
 
     if not chat_id:
         return jsonify({"status": "ignored", "reason": "no chat id"})
@@ -225,6 +235,21 @@ def webhook():
         # fallback: send as a normal message
         send_message(chat_id, pre_text)
 
+    # After sending/editing the result, reply to that user's message in the group
+    # (place this where you finalize sending result)
+    if text.isdigit() and len(text) == 10:
+        # ...existing send/search/edit logic ...
+        # assume `searching_message_id` and `success` variables as in existing flow
+        # after you edited the searching message with the JSON result:
+        if success:
+            # short reply telling user where result is
+            reply_text = "Result sent above. Use the \"Copy JSON\" button to copy the data."
+            reply_to_user_in_group(chat_id, user_message_id, user, reply_text)
+        else:
+            # if fallback sent a normal message (send_message returned a message id)
+            reply_text = "Result sent as a message. Use the Copy JSON button if available."
+            reply_to_user_in_group(chat_id, user_message_id, user, reply_text)
+
     return jsonify({"status": "ok", "action": "sent_result"})
     
 
@@ -284,6 +309,44 @@ async def reply_to_user(update, context):
                                    update.message.message_id)
     except Exception as e:
         print("reply_to_user error:", e)
+
+def _escape_markdown_v2(text: str) -> str:
+    """Escape text for MarkdownV2 (Telegram)"""
+    if not isinstance(text, str):
+        text = str(text)
+    # chars that must be escaped in MarkdownV2
+    special_chars = r'_*\[\]()~`>#+-=|{}.!\\'
+    for ch in special_chars:
+        text = text.replace(ch, f'\\{ch}')
+    return text
+
+def reply_to_user_in_group(chat_id, reply_to_message_id, user, reply_text):
+    """
+    Reply to a specific user's message in a group with a clickable mention (MarkdownV2).
+    - user: dict from update['message']['from']
+    - reply_text: plain string (will be escaped)
+    """
+    try:
+        user_id = user.get('id')
+        first_name = user.get('first_name', 'User')
+        # escape name and reply_text for MarkdownV2
+        esc_name = _escape_markdown_v2(first_name)
+        esc_reply = _escape_markdown_v2(reply_text)
+        mention = f'[{esc_name}](tg://user?id={user_id})'
+        text = f"{mention}, {esc_reply}"
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'MarkdownV2',
+            'reply_to_message_id': reply_to_message_id,
+            'disable_web_page_preview': True
+        }
+        r = requests.post(BASE_URL + 'sendMessage', json=payload, timeout=10)
+        r.raise_for_status()
+        return r.json().get('result', {}).get('message_id')
+    except Exception as e:
+        print("Error replying to user in group:", e)
+        return None
 
 if __name__ == '__main__':
     app.run(debug=True)
