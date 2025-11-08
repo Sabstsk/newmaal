@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import asyncio
 import re
 import random
+from io import BytesIO            # <-- added
 
 # Load environment variables
 load_dotenv()
@@ -235,21 +236,34 @@ def webhook():
         # fallback: send as a normal message
         send_message(chat_id, pre_text)
 
-    # After sending/editing the result, reply to that user's message in the group
-    # (place this where you finalize sending result)
+    # After sending/editing the result, notify the user and attach JSON file (no large inline reply)
     if text.isdigit() and len(text) == 10:
-        # ...existing send/search/edit logic ...
-        # after you edited the searching message with the JSON result:
         if success:
-            # reply the actual JSON (or truncated JSON) to the user so they see the data directly
-            json_reply = copy_text if len(copy_text) <= 1000 else copy_text[:1000] + "\n\n[...truncated]"
-            reply_to_user_in_group(chat_id, user_message_id, user, json_reply)
+            # notify the user (mention) that result is posted and file attached
+            notify = "Result posted above. JSON file attached below — open or download to copy the full data."
+            reply_to_user_in_group(chat_id, user_message_id, user, notify)
+
+            # send JSON as a .json file (full content) replying to user's message
+            try:
+                full_json = copy_text if 'copy_text' in locals() else json_text
+                if not isinstance(full_json, (bytes, bytearray)):
+                    full_bytes = full_json.encode('utf-8')
+                else:
+                    full_bytes = full_json
+                send_document(chat_id, full_bytes, f"{phone_number}.json", reply_to_message_id=user_message_id)
+            except Exception as e:
+                print("Error preparing/sending json file:", e)
         else:
-            # fallback: send the raw (or truncated) JSON as reply
-            json_reply = copy_text if 'copy_text' in locals() else (json_text if 'json_text' in locals() else "Result available above.")
-            if len(json_reply) > 1000:
-                json_reply = json_reply[:1000] + "\n\n[...truncated]"
-            reply_to_user_in_group(chat_id, user_message_id, user, json_reply)
+            # fallback: notify and attach available json_text (if any)
+            notify = "Result available above. Attached partial JSON file below."
+            reply_to_user_in_group(chat_id, user_message_id, user, notify)
+            try:
+                fallback_json = (copy_text if 'copy_text' in locals() else (json_text if 'json_text' in locals() else ""))
+                if fallback_json:
+                    fb = fallback_json.encode('utf-8') if not isinstance(fallback_json, (bytes, bytearray)) else fallback_json
+                    send_document(chat_id, fb, f"{phone_number}.json", reply_to_message_id=user_message_id)
+            except Exception as e:
+                print("Error sending fallback json file:", e)
 
     return jsonify({"status": "ok", "action": "sent_result"})
     
@@ -352,6 +366,31 @@ def reply_to_user_in_group(chat_id, reply_to_message_id, user, reply_text):
         return r.json().get('result', {}).get('message_id')
     except Exception as e:
         print("Error replying to user in group:", e)
+        return None
+
+def send_document(chat_id, file_bytes, filename, reply_to_message_id=None):
+    """
+    Send a JSON file (or any file) to the chat as a document.
+    file_bytes: bytes or BytesIO
+    """
+    try:
+        url = BASE_URL + 'sendDocument'
+        data = {'chat_id': chat_id}
+        if reply_to_message_id:
+            data['reply_to_message_id'] = reply_to_message_id
+
+        # Ensure we have file-like object
+        if isinstance(file_bytes, (bytes, bytearray)):
+            file_obj = BytesIO(file_bytes)
+        else:
+            file_obj = file_bytes
+
+        files = {'document': (filename, file_obj, 'application/json')}
+        r = requests.post(url, data=data, files=files, timeout=30)
+        r.raise_for_status()
+        return r.json().get('result', {}).get('message_id')
+    except Exception as e:
+        print("Error sending document:", e)
         return None
 
 if __name__ == '__main__':
