@@ -76,7 +76,7 @@ def get_phone_info(phone_number):
         base = (OSINT_BASE_URL or "").rstrip('?')
         if not base:
             print("OSINT_BASE_URL not configured")
-            return "Error: OSINT_BASE_URL not configured"
+            return {"error": "Service not configured"}
 
         params = {}
         if API_KEY:
@@ -110,9 +110,33 @@ def get_phone_info(phone_number):
         except ValueError:
             return resp.text or "No content"
 
+    except requests.Timeout:
+        # Hide sensitive information for timeout errors
+        print(f"Timeout error for number: {phone_number}")
+        return {"error": "timeout"}
+    except requests.ConnectionError:
+        # Hide connection details
+        print(f"Connection error for number: {phone_number}")
+        return {"error": "connection"}
     except Exception as e:
-        print("Error fetching data:", e)
-        return f"Error fetching data: {e}"
+        # Log full error on server but return generic message
+        print(f"Error fetching data: {type(e).__name__} - {e}")
+        return {"error": "service_unavailable"}
+
+def choose_no_data_message():
+    """
+    Return a creative/abusive message when no data is found.
+    """
+    messages = [
+        "🤬 Bhai kuch bhi nahi mila! Kya bakchodi number hai ye? Database mein nahi hai.",
+        "😤 Oye lowde, yeh number toh ghost hai! Kuch data nahi hai mere paas.",
+        "🚫 Are yaar, khaali haath reh gaye. Iss number ka kuch nahi mila.",
+        "😒 Kya faltu number diya hai? Database mein ghanta kuch nahi hai.",
+        "🤦‍♂️ Abe yeh number toh bekaar hai! Koi info nahi hai bhai.",
+        "💀 RIP bro, iss number ka data toh gaya bhaad mein. Kuch nahi mila.",
+        "😑 Gandmasti mat kar, yeh number fake lagta hai. Data nahi mila."
+    ]
+    return random.choice(messages)
 
 def choose_abusive_message(text):
     """
@@ -153,6 +177,11 @@ def choose_abusive_message(text):
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json() or {}
+    
+    # Handle callback query (inline button clicks)
+    if "callback_query" in update:
+        return handle_callback_query(update["callback_query"])
+    
     message = update.get("message") or {}
     text = (message.get("text") or "").strip()
     chat = message.get("chat") or {}
@@ -194,6 +223,30 @@ def webhook():
 
     # 2. Get the result
     result = get_phone_info(phone_number)
+    
+    # Handle error responses
+    if isinstance(result, dict) and 'error' in result:
+        # Delete the searching message
+        try:
+            requests.post(BASE_URL + 'deleteMessage', json={
+                'chat_id': chat_id,
+                'message_id': searching_message_id
+            }, timeout=10)
+        except Exception as e:
+            print(f"Error deleting searching message: {e}")
+        
+        # Map error types to user-friendly messages
+        error_messages = {
+            "timeout": "⏱️ Saiyaara, server response nahi de raha! Thoda time out ho gaya.\n\n😤 Phir se try kar bhai, server slow chal raha hai.",
+            "connection": "🔌 Abe yaar, connection issue hai! Server tak pohoch nahi paa rahe.\n\n🤦‍♂️ Thodi der baad dobara try kar.",
+            "service_unavailable": "🚫 Service abhi available nahi hai bhai!\n\n😑 Thoda wait kar aur phir try kar."
+        }
+        
+        error_type = result.get('error', 'service_unavailable')
+        error_msg = error_messages.get(error_type, error_messages['service_unavailable'])
+        
+        send_message(chat_id, error_msg)
+        return jsonify({"status": "error", "action": "service_error", "error_type": error_type})
 
     # Format the result using format_flipcart_info
     try:
@@ -218,6 +271,39 @@ def webhook():
     except Exception as e:
         print(f"Error formatting result: {e}")
         formatted_text = str(result)
+    
+    # Check if no data was found
+    if formatted_text is None:
+        # Delete the searching message
+        try:
+            requests.post(BASE_URL + 'deleteMessage', json={
+                'chat_id': chat_id,
+                'message_id': searching_message_id
+            }, timeout=10)
+        except Exception as e:
+            print(f"Error deleting searching message: {e}")
+        
+        # Send abusive message with search options
+        abusive_msg = choose_no_data_message()
+        search_options_text = (
+            f"\n\n🔍 Kya dhundna chahte ho bhai?\n"
+            f"Neeche se option select kar:"
+        )
+        
+        # Create inline keyboard with search options
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "🆔 Aadhaar Number", "callback_data": "search_aadhaar"}],
+                [{"text": "👤 Name", "callback_data": "search_name"}],
+                [{"text": "👨 Father Name", "callback_data": "search_fname"}],
+                [{"text": "📱 Mobile Number", "callback_data": "search_mobile"}],
+                [{"text": "🏠 Address", "callback_data": "search_address"}],
+                [{"text": "📡 Circle", "callback_data": "search_circle"}]
+            ]
+        }
+        
+        send_message(chat_id, abusive_msg + search_options_text, reply_markup=keyboard)
+        return jsonify({"status": "ok", "action": "no_data_found"})
 
     # Delete the searching message
     try:
@@ -234,8 +320,21 @@ def webhook():
     return jsonify({"status": "ok", "action": "sent_result"})
     
 
+def is_data_empty(entry):
+    """Check if all important fields in an entry are N/A or empty"""
+    important_fields = ['id', 'mobile', 'name', 'fname', 'address', 'circle']
+    for field in important_fields:
+        value = entry.get(field, 'N/A')
+        if value and value != 'N/A' and str(value).strip():
+            return False
+    return True
+
 def format_flipcart_info(data):
     formatted_results = ["ℹ️ Number Information\n"]
+    
+    # Check if data is empty
+    if not data or all(is_data_empty(entry) for entry in data):
+        return None  # Signal that no data was found
     
     for idx, entry in enumerate(data):
         result = []
@@ -376,6 +475,49 @@ def send_document(chat_id, file_bytes, filename, reply_to_message_id=None):
     except Exception as e:
         print("Error sending document:", e)
         return None
+
+def handle_callback_query(callback_query):
+    """
+    Handle inline button clicks (callback queries)
+    """
+    try:
+        query_id = callback_query.get('id')
+        chat_id = callback_query.get('message', {}).get('chat', {}).get('id')
+        callback_data = callback_query.get('data', '')
+        
+        # Answer the callback query to remove loading state
+        requests.post(BASE_URL + 'answerCallbackQuery', json={
+            'callback_query_id': query_id,
+            'text': '✅ Samajh gaya!'
+        }, timeout=10)
+        
+        # Prepare response based on selected option
+        search_type_map = {
+            'search_aadhaar': '🆔 Aadhaar Number',
+            'search_name': '👤 Name',
+            'search_fname': '👨 Father Name',
+            'search_mobile': '📱 Mobile Number',
+            'search_address': '🏠 Address',
+            'search_circle': '📡 Circle'
+        }
+        
+        search_type = search_type_map.get(callback_data, 'Unknown')
+        
+        response_text = (
+            f"\n{search_type} se search karne ke liye:\n\n"
+            f"Abhi yeh feature under development hai bhai! 🚧\n"
+            f"Filhal sirf mobile number se hi search kar sakte ho.\n\n"
+            f"Agar specific data chahiye toh directly mujhe bolo ya\n"
+            f"developer se contact karo! 😎"
+        )
+        
+        send_message(chat_id, response_text)
+        
+        return jsonify({"status": "ok", "action": "callback_handled"})
+        
+    except Exception as e:
+        print(f"Error handling callback query: {e}")
+        return jsonify({"status": "error", "message": str(e)})
 
 if __name__ == '__main__':
     app.run(debug=True)
